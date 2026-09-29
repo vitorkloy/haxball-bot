@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Haxball Bot - Jogar Online</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🤖 Haxball Bot</h1>
+      <p class="subtitle">Bot inteligente que joga Haxball automaticamente</p>
+    </header>
+
+    <div class="warning-box">
+      <strong>⚠️ AVISO:</strong> Use apenas em salas próprias ou com permissão do host. 
+      Uso em salas públicas pode resultar em banimento.
+    </div>
+
+    <div class="info-box">
+      <strong>ℹ️ Conexão:</strong> Usa proxy público (node-haxball.onrender.com) para contornar restrições de CORS do navegador.
+      <strong>⚠️ Limitação:</strong> Salas com CAPTCHA não funcionam (bots não resolvem CAPTCHAs).
+    </div>
+
+    <div class="card" id="join-card">
+      <h2>Entrar em uma Sala</h2>
+      
+      <div class="form-group">
+        <label for="room-link">Link da Sala *</label>
+        <input 
+          type="text" 
+          id="room-link" 
+          placeholder="https://www.haxball.com/play?c=XXXXXX"
+          value=""
+        >
+        <small>Cole o link da sala do Haxball</small>
+      </div>
+
+      <div class="form-group">
+        <label for="bot-name">Nome do Bot</label>
+        <input 
+          type="text" 
+          id="bot-name" 
+          placeholder="HaxBot"
+          value="HaxBot"
+          maxlength="15"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="password">Senha (opcional)</label>
+        <input 
+          type="password" 
+          id="password" 
+          placeholder="Deixe vazio se a sala não tem senha"
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="difficulty">Dificuldade</label>
+        <select id="difficulty">
+          <option value="easy">Fácil</option>
+          <option value="medium" selected>Médio</option>
+          <option value="hard">Difícil</option>
+          <option value="insane">Insano</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="avatar">Avatar (emoji)</label>
+        <input 
+          type="text" 
+          id="avatar" 
+          value="🤖"
+          maxlength="2"
+        >
+      </div>
+
+      <button id="join-btn" class="btn-primary">
+        🎮 Entrar e Jogar
+      </button>
+
+      <div id="error-message" class="error-message" style="display: none;"></div>
+    </div>
+
+    <div class="card" id="status-card" style="display: none;">
+      <h2>Status do Bot</h2>
+      
+      <div class="status-grid">
+        <div class="status-item">
+          <span class="status-label">Conexão:</span>
+          <span id="connection-status" class="status-value">Desconectado</span>
+        </div>
+        
+        <div class="status-item">
+          <span class="status-label">Sala:</span>
+          <span id="room-name" class="status-value">-</span>
+        </div>
+        
+        <div class="status-item">
+          <span class="status-label">Time:</span>
+          <span id="team-status" class="status-value">Espectador</span>
+        </div>
+        
+        <div class="status-item">
+          <span class="status-label">Placar:</span>
+          <span id="score" class="status-value">0 x 0</span>
+        </div>
+        
+        <div class="status-item">
+          <span class="status-label">Estado IA:</span>
+          <span id="ai-state" class="status-value">-</span>
+        </div>
+        
+        <div class="status-item">
+          <span class="status-label">Ativo:</span>
+          <span id="bot-active" class="status-value">❌ Não</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="toggle-btn" class="btn-secondary">▶️ Ativar Bot</button>
+        <button id="disconnect-btn" class="btn-danger">🚪 Desconectar</button>
+      </div>
+
+      <div class="log-container">
+        <h3>Log de Eventos</h3>
+        <div id="event-log"></div>
+      </div>
+    </div>
+
+    <footer>
+      <p>
+        <a href="https://github.com/vitorkloy/haxball-bot" target="_blank">
+          GitHub
+        </a>
+        | 
+        <a href="https://github.com/vitorkloy/haxball-bot#readme" target="_blank">
+          Documentação
+        </a>
+      </p>
+      <p class="small-text">
+        Desenvolvido para uso pessoal e educacional
+      </p>
+    </footer>
+  </div>
+
+  <!-- External dependencies for node-haxball browser support -->
+  <script src="https://cdn.jsdelivr.net/gh/wxyz-abcd/node-haxball@latest/examples_web/src/vendor/json5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/wxyz-abcd/node-haxball@latest/examples_web/src/vendor/pako-jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/wxyz-abcd/node-haxball@latest/src/api.js"></script>
+  
+  <!-- Main application -->
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
