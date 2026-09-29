@@ -19,6 +19,25 @@ Bot inteligente de Haxball com controle de bola, posicionamento tático, visão 
 - Ranked/competitivo
 - Qualquer sala sem permissão explícita do host
 
+## 🌐 Usar Online (Recomendado)
+
+**Forma mais fácil**: Acesse **[https://vitorkloy.github.io/haxball-bot/](https://vitorkloy.github.io/haxball-bot/)**
+
+1. Cole o link da sala do Haxball
+2. Configure nome, senha (se necessário) e dificuldade
+3. Clique em "Entrar e Jogar"
+4. O bot entra e joga automaticamente no seu navegador!
+
+### Limitações da UI Web
+- ⚠️ **Salas com CAPTCHA**: Bots não conseguem resolver CAPTCHAs. Se a sala exigir, use o modo CLI.
+- ⚠️ **CORS/WebRTC**: Funciona na maioria dos navegadores modernos (Chrome, Firefox, Edge)
+- ✅ **Sem instalação**: Roda direto no navegador
+- ✅ **Interface visual**: Veja status, placar e estado da IA em tempo real
+
+## 💻 Usar via CLI (Avançado)
+
+Se preferir rodar localmente via linha de comando ou criar salas próprias:
+
 ## 🎯 Características
 
 - ✅ Controle inteligente de bola e drible
