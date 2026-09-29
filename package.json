@@ -1,0 +1,33 @@
+{
+  "name": "haxball-bot",
+  "version": "1.0.0",
+  "description": "Bot inteligente de Haxball para treinamento e salas privadas",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/unit",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/e2e"
+  },
+  "keywords": [
+    "haxball",
+    "bot",
+    "ai",
+    "game"
+  ],
+  "author": "Vitor Kloy",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-haxball": "^2.0.8"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
