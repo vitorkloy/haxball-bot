@@ -165,7 +165,6 @@ async function runMatch(matchType, durationMinutes = 3) {
   let ballPossessionBlue = 0;
   let shotsRed = 0;
   let shotsBlue = 0;
-  let lastKickerId = null;
   let lastBallX = 0;
 
   for (let tick = 0; tick < totalTicks; tick++) {
@@ -199,23 +198,18 @@ async function runMatch(matchType, durationMinutes = 3) {
         if (dist1 < 30) ballPossessionRed++;
         if (dist2 < 30) ballPossessionBlue++;
 
-        // Count shots (ball moving toward goal)
-        if (Math.abs(ball.pos.x - lastBallX) > 5) {
+        // Count shots (ball moving toward goal fast)
+        if (Math.abs(ball.pos.x - lastBallX) > 3) {
           if (ball.pos.x > lastBallX && ball.pos.x > 350) shotsRed++;
           if (ball.pos.x < lastBallX && ball.pos.x < -350) shotsBlue++;
         }
         lastBallX = ball.pos.x;
       }
 
-      // Check goals
-      const scores = sandbox.state.getScores();
-      if (scores) {
-        if (scores.red > redGoals) {
-          redGoals = scores.red;
-        }
-        if (scores.blue > blueGoals) {
-          blueGoals = scores.blue;
-        }
+      // Track goals from gameState
+      if (sandbox.gameState.scores) {
+        redGoals = sandbox.gameState.scores.red || 0;
+        blueGoals = sandbox.gameState.scores.blue || 0;
       }
     }
 
@@ -230,14 +224,13 @@ async function runMatch(matchType, durationMinutes = 3) {
   console.log('\r   Progresso: 100% (completo)       \n');
 
   // Final stats
-  const finalScores = sandbox.state.getScores();
   const totalPossession = ballPossessionRed + ballPossessionBlue;
   const possessionRedPct = totalPossession > 0 ? (ballPossessionRed / totalPossession * 100).toFixed(1) : 0;
   const possessionBluePct = totalPossession > 0 ? (ballPossessionBlue / totalPossession * 100).toFixed(1) : 0;
 
   console.log('\n📊 RESULTADO FINAL\n');
-  console.log(`   Placar: ${finalScores.red} x ${finalScores.blue}`);
-  console.log(`   Vencedor: ${finalScores.red > finalScores.blue ? '🔴 Time Vermelho (Bot)' : finalScores.blue > finalScores.red ? '🔵 Time Azul' : '⚪ Empate'}`);
+  console.log(`   Placar: ${redGoals} x ${blueGoals}`);
+  console.log(`   Vencedor: ${redGoals > blueGoals ? '🔴 Time Vermelho (Bot)' : blueGoals > redGoals ? '🔵 Time Azul' : '⚪ Empate'}`);
   console.log(`\n   Posse de Bola:`);
   console.log(`      🔴 Vermelho: ${possessionRedPct}%`);
   console.log(`      🔵 Azul: ${possessionBluePct}%`);
@@ -246,10 +239,10 @@ async function runMatch(matchType, durationMinutes = 3) {
   console.log(`      🔵 Azul: ${shotsBlue}`);
 
   return {
-    redGoals: finalScores.red,
-    blueGoals: finalScores.blue,
-    possessionRed: possessionRedPct,
-    possessionBlue: possessionBluePct,
+    redGoals,
+    blueGoals,
+    possessionRed: parseFloat(possessionRedPct),
+    possessionBlue: parseFloat(possessionBluePct),
     shotsRed,
     shotsBlue
   };

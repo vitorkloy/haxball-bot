@@ -236,8 +236,15 @@ async function joinRoom() {
       throw new Error('Biblioteca node-haxball não carregada. Recarregue a página.');
     }
 
-    const API = abcHaxballAPI(window);
+    const API = abcHaxballAPI(window, {
+      proxy: {
+        WebSocketUrl: "wss://node-haxball.onrender.com/",
+        HttpUrl: "https://node-haxball.onrender.com/rs/"
+      }
+    });
     const { Room, Utils } = API;
+
+    logEvent('Usando proxy: node-haxball.onrender.com');
 
     // Generate auth
     logEvent('Gerando autenticação...');
