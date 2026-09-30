@@ -1,96 +1,7 @@
 import { PhysicsPredictor } from './physics.js';
 import { BotAI } from './ai.js';
+import { BotController } from './bot-controller.js';
 import { getConfig, GAME_STATES } from './config.js';
-
-// Bot controller for browser
-class BrowserBotController {
-  constructor(room, config) {
-    this.room = room;
-    this.config = config;
-    this.botPlayerId = null;
-    this.isActive = false;
-    this.physics = null;
-    this.ai = null;
-    this.lastKeyState = 0;
-  }
-
-  initialize() {
-    if (!this.room.state?.stadium) {
-      console.log('Aguardando estádio...');
-      return;
-    }
-
-    this.physics = new PhysicsPredictor(this.room.state.stadium);
-    this.ai = new BotAI(this.config, this.physics);
-    this.isActive = true;
-    
-    console.log('Bot inicializado');
-    logEvent('Bot inicializado e pronto');
-  }
-
-  setBotPlayerId(playerId) {
-    this.botPlayerId = playerId;
-  }
-
-  update() {
-    if (!this.isActive || !this.botPlayerId) return;
-
-    try {
-      this.room.extrapolate();
-      const { state, gameState, gameStateExt } = this.room;
-      const currentGameState = gameStateExt || gameState;
-
-      if (!currentGameState || !state) return;
-
-      const botPlayer = state.getPlayer(this.botPlayerId);
-      if (!botPlayer || !botPlayer.disc) return;
-
-      const decision = this.ai.decide(currentGameState, botPlayer);
-      this.executeDecision(decision, botPlayer);
-    } catch (error) {
-      console.error('Erro no update:', error);
-    }
-  }
-
-  executeDecision(decision, botPlayer) {
-    const { dirX, dirY, kick } = decision;
-    const keyState = this.encodeKeyState(dirX, dirY, kick);
-
-    if (keyState !== this.lastKeyState || (kick && !botPlayer.isKicking)) {
-      if (keyState === this.lastKeyState && kick && !botPlayer.isKicking) {
-        this.room.setKeyState(keyState & ~16);
-      }
-      
-      this.room.setKeyState(keyState);
-      this.lastKeyState = keyState;
-    }
-  }
-
-  encodeKeyState(dirX, dirY, kick) {
-    let state = 0;
-    if (dirX === 1) state |= 1;
-    if (dirX === -1) state |= 2;
-    if (dirY === 1) state |= 4;
-    if (dirY === -1) state |= 8;
-    if (kick) state |= 16;
-    return state;
-  }
-
-  setActive(active) {
-    this.isActive = active;
-    if (!active) {
-      this.lastKeyState = 0;
-    }
-  }
-
-  getState() {
-    return {
-      playerId: this.botPlayerId,
-      isActive: this.isActive,
-      currentState: this.ai?.currentState || 'unknown'
-    };
-  }
-}
 
 // Global state
 let room = null;
@@ -167,18 +78,16 @@ function updateStatus() {
     // Room name
     roomName.textContent = room.name || '-';
 
-    // Team
-    if (room.state && botController && botController.botPlayerId) {
-      const player = room.state.getPlayer(botController.botPlayerId);
-      if (player) {
-        const teamNames = ['⚪ Espectador', '🔴 Vermelho', '🔵 Azul'];
-        teamStatus.textContent = teamNames[player.team.id] || 'Espectador';
-        
-        // If spectator, bot should be idle
-        if (player.team.id === 0 && botController.isActive) {
-          botController.setActive(false);
-          updateToggleButton();
-        }
+    // Team - use currentPlayer
+    if (room.currentPlayer) {
+      const player = room.currentPlayer;
+      const teamNames = ['⚪ Espectador', '🔴 Vermelho', '🔵 Azul'];
+      teamStatus.textContent = teamNames[player.team.id] || 'Espectador';
+      
+      // If spectator, bot should be idle
+      if (player.team.id === 0 && botController && botController.isActive) {
+        botController.setActive(false);
+        updateToggleButton();
       }
     }
 
@@ -266,19 +175,12 @@ async function joinRoom() {
         room = r;
         logEvent(`✅ Conectado à sala: ${room.name}`);
         
-        // Find bot player ID
-        const players = room.getPlayerList && room.getPlayerList();
-        if (players) {
-          const botPlayer = players.find(p => p.name === botName);
-          if (botPlayer) {
-            const config = getConfig(difficulty, botName, avatar);
-            botController = new BrowserBotController(room, config);
-            botController.setBotPlayerId(botPlayer.id);
-            botController.initialize();
-            
-            logEvent(`Bot ID: ${botPlayer.id}`);
-          }
-        }
+        // Create bot controller
+        const config = getConfig(difficulty, botName, avatar);
+        botController = new BotController(room, config);
+        botController.initialize();
+        
+        logEvent(`Bot inicializado`);
 
         // Setup event handlers
         setupRoomEvents();
@@ -341,7 +243,7 @@ function setupRoomEvents() {
     logEvent('🎮 Jogo iniciado');
     if (botController && !botController.isActive) {
       // Auto-activate if on a team
-      const player = room.state.getPlayer(botController.botPlayerId);
+      const player = room.currentPlayer;
       if (player && player.team.id !== 0) {
         botController.setActive(true);
         updateToggleButton();
@@ -404,7 +306,7 @@ function toggleBot() {
   if (!botController) return;
 
   // Check if on a team
-  const player = room.state.getPlayer(botController.botPlayerId);
+  const player = room.currentPlayer;
   if (player && player.team.id === 0) {
     showError('Bot precisa estar em um time para jogar');
     return;

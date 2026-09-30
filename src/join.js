@@ -98,7 +98,6 @@ async function joinRoom() {
 
         // Create bot controller
         const botController = new BotController(r, config);
-        botController.setBotPlayerId(botPlayer.id);
 
         // Setup event handlers
         r.onPlayerJoin = (player) => {
@@ -114,7 +113,7 @@ async function joinRoom() {
           botController.initialize();
           
           // Auto-activate if on a team
-          const player = r.state.getPlayer(botPlayer.id);
+          const player = r.currentPlayer;
           if (player && player.team.id !== 0) {
             botController.setActive(true);
             console.log('✅ Bot ativado\n');
@@ -137,7 +136,8 @@ async function joinRoom() {
         };
 
         r.onPlayerTeamChange = (player) => {
-          if (player.id === botPlayer.id) {
+          const currentPlayer = r.currentPlayer;
+          if (currentPlayer && player.id === currentPlayer.id) {
             const teamName = ['Espectador', 'Vermelho', 'Azul'][player.team.id];
             console.log(`📍 Movido para: ${teamName}`);
             
