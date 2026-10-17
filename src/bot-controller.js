@@ -5,6 +5,8 @@ export class BotController {
   constructor(room, config) {
     this.room = room;
     this.config = config;
+    // Optional explicit player id (host mode). When null, the controller
+    // drives `room.currentPlayer` (client mode via Room.join).
     this.botPlayerId = null;
     this.isActive = false;
     this.physics = null;
@@ -13,50 +15,67 @@ export class BotController {
   }
 
   /**
-   * Initializes the bot when game starts
+   * Initializes the bot when the stadium is available
    */
   initialize() {
-    if (!this.room.state?.stadium) {
+    const stadium = this.room.state?.stadium || this.room.stadium;
+    if (!stadium) {
       console.log('⏳ Aguardando carregamento do estádio...');
-      return;
+      return false;
     }
 
-    this.physics = new PhysicsPredictor(this.room.state.stadium);
+    this.physics = new PhysicsPredictor(stadium);
     this.ai = new BotAI(this.config, this.physics);
     this.isActive = true;
-    
+
     console.log('✅ Bot inicializado e pronto para jogar');
+    return true;
   }
 
   /**
-   * Updates bot player ID
+   * Sets an explicit player id to control (optional, host mode).
    */
   setBotPlayerId(playerId) {
     this.botPlayerId = playerId;
   }
 
   /**
+   * Returns the player object controlled by the bot.
+   */
+  getBotPlayer() {
+    const room = this.room;
+    if (this.botPlayerId == null) {
+      return room.currentPlayer || null;
+    }
+    return (
+      room.getPlayer?.(this.botPlayerId) ||
+      room.state?.getPlayer?.(this.botPlayerId) ||
+      room.state?.players?.find?.((p) => p.id === this.botPlayerId) ||
+      null
+    );
+  }
+
+  /**
    * Main update loop - called on every game tick
    */
   update() {
-    if (!this.isActive || !this.botPlayerId) return;
+    if (!this.isActive) return;
 
     try {
-      // Ensure state is extrapolated
-      this.room.extrapolate();
+      if (!this.ai && !this.initialize()) return;
+
+      // Ensure extrapolated (`ext`) values are up to date
+      this.room.extrapolate?.();
 
       const { state, gameState, gameStateExt } = this.room;
       const currentGameState = gameStateExt || gameState;
 
       if (!currentGameState || !state) return;
 
-      const botPlayer = state.getPlayer(this.botPlayerId);
+      const botPlayer = this.getBotPlayer();
       if (!botPlayer || !botPlayer.disc) return;
 
-      // Get AI decision
       const decision = this.ai.decide(currentGameState, botPlayer);
-
-      // Convert to key state and send input
       this.executeDecision(decision, botPlayer);
     } catch (error) {
       console.error('❌ Erro no update do bot:', error.message);
@@ -68,50 +87,53 @@ export class BotController {
    */
   executeDecision(decision, botPlayer) {
     const { dirX, dirY, kick } = decision;
-    
-    // Convert direction to key state
-    // KeyState encoding: bits 0-3 for direction, bit 4 for kick
     const keyState = this.encodeKeyState(dirX, dirY, kick);
 
-    // Only send input if it changed or we need to kick
-    if (keyState !== this.lastKeyState || (kick && !botPlayer.isKicking)) {
-      // If trying to kick but not kicking, release and press again
-      if (keyState === this.lastKeyState && kick && !botPlayer.isKicking) {
-        this.room.setKeyState(keyState & ~16); // Release kick (clear bit 4)
+    // Holding kick only kicks once; release and press again to kick repeatedly.
+    const needsRekick = kick && keyState === this.lastKeyState && !botPlayer.isKicking;
+
+    if (keyState !== this.lastKeyState || needsRekick) {
+      if (needsRekick) {
+        this.room.setKeyState(keyState & ~16);
       }
-      
       this.room.setKeyState(keyState);
       this.lastKeyState = keyState;
     }
   }
 
   /**
-   * Encodes direction and kick into key state
-   * @param {number} dirX - -1, 0, or 1
-   * @param {number} dirY - -1, 0, or 1
-   * @param {boolean} kick - whether to kick
+   * Encodes direction and kick into key state (same as Utils.keyState)
    * @returns {number} encoded key state (0-31)
    */
   encodeKeyState(dirX, dirY, kick) {
     let state = 0;
-
-    // Direction bits (0-3)
     if (dirX === 1) state |= 1;  // Right
     if (dirX === -1) state |= 2; // Left
     if (dirY === 1) state |= 4;  // Down
     if (dirY === -1) state |= 8; // Up
-
-    // Kick bit (4)
-    if (kick) state |= 16;
-
+    if (kick) state |= 16;       // Kick
     return state;
+  }
+
+  /**
+   * Releases all keys so the player stops moving
+   */
+  releaseKeys() {
+    if (this.lastKeyState !== 0) {
+      try {
+        this.room.setKeyState?.(0);
+      } catch (e) {
+        // ignore
+      }
+    }
+    this.lastKeyState = 0;
   }
 
   /**
    * Resets bot state
    */
   reset() {
-    this.lastKeyState = 0;
+    this.releaseKeys();
     this.isActive = false;
   }
 
@@ -121,7 +143,7 @@ export class BotController {
   setActive(active) {
     this.isActive = active;
     if (!active) {
-      this.lastKeyState = 0;
+      this.releaseKeys();
     }
   }
 
@@ -130,7 +152,7 @@ export class BotController {
    */
   getState() {
     return {
-      playerId: this.botPlayerId,
+      playerId: this.botPlayerId ?? this.room.currentPlayerId ?? null,
       isActive: this.isActive,
       currentState: this.ai?.currentState || 'unknown',
       lastKeyState: this.lastKeyState

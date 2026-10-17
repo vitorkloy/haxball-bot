@@ -84,9 +84,8 @@ async function joinRoom() {
       onOpen: (r) => {
         console.log(`✅ Conectado à sala: ${r.name}\n`);
         
-        // Find bot player
-        const players = r.getPlayerList();
-        const botPlayer = players.find(p => p.name === values.name);
+        // The bot is the current (local) player of the joined room
+        const botPlayer = r.currentPlayer;
         
         if (!botPlayer) {
           console.error('❌ Erro: Bot player não encontrado');
@@ -98,7 +97,6 @@ async function joinRoom() {
 
         // Create bot controller
         const botController = new BotController(r, config);
-        botController.setBotPlayerId(botPlayer.id);
 
         // Setup event handlers
         r.onPlayerJoin = (player) => {
@@ -114,7 +112,7 @@ async function joinRoom() {
           botController.initialize();
           
           // Auto-activate if on a team
-          const player = r.state.getPlayer(botPlayer.id);
+          const player = r.currentPlayer;
           if (player && player.team.id !== 0) {
             botController.setActive(true);
             console.log('✅ Bot ativado\n');
@@ -128,21 +126,21 @@ async function joinRoom() {
         };
 
         r.onTeamGoal = (teamId) => {
-          const scores = r.getScores();
-          console.log(`⚽ GOL! Placar: ${scores.red} x ${scores.blue}`);
+          console.log(`⚽ GOL! Placar: ${r.redScore ?? 0} x ${r.blueScore ?? 0}`);
         };
 
-        r.onTeamVictory = (scores) => {
-          console.log(`🏆 Fim de jogo: ${scores.red} x ${scores.blue}\n`);
+        r.onGameEnd = (winningTeamId) => {
+          console.log(`🏆 Fim de jogo: ${r.redScore ?? 0} x ${r.blueScore ?? 0}\n`);
         };
 
-        r.onPlayerTeamChange = (player) => {
-          if (player.id === botPlayer.id) {
-            const teamName = ['Espectador', 'Vermelho', 'Azul'][player.team.id];
+        // node-haxball signature: (playerId, teamId, byId)
+        r.onPlayerTeamChange = (playerId, teamId) => {
+          if (playerId === r.currentPlayerId) {
+            const teamName = ['Espectador', 'Vermelho', 'Azul'][teamId];
             console.log(`📍 Movido para: ${teamName}`);
             
             // Activate/deactivate based on team
-            if (player.team.id === 0) {
+            if (teamId === 0) {
               botController.setActive(false);
               console.log('⏸️  Bot pausado (espectador)');
             } else if (r.gameState) {

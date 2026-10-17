@@ -37,9 +37,11 @@ export class BotAI {
    */
   analyzeGameState(gameState, botPlayer) {
     const ball = gameState.physicsState?.discs?.[0];
-    if (!ball) return null;
+    if (!ball || !ball.pos) return null;
 
-    const playerDisc = botPlayer.disc.ext;
+    const playerDisc = botPlayer.disc?.ext;
+    if (!playerDisc || !playerDisc.pos) return null;
+    
     const teamId = botPlayer.team.id;
     const opponentTeamId = 3 - teamId;
 
@@ -52,8 +54,8 @@ export class BotAI {
     const ballState = {
       x: ball.pos.x,
       y: ball.pos.y,
-      xspeed: ball.xspeed || 0,
-      yspeed: ball.yspeed || 0,
+      xspeed: ball.speed?.x || 0,
+      yspeed: ball.speed?.y || 0,
       radius: ball.radius,
       damping: ball.damping,
       invMass: ball.invMass
