@@ -75,7 +75,7 @@ export class BotController {
       const botPlayer = this.getBotPlayer();
       if (!botPlayer || !botPlayer.disc) return;
 
-      const decision = this.ai.decide(currentGameState, botPlayer);
+      const decision = this.ai.decide(currentGameState, botPlayer, state, Date.now());
       this.executeDecision(decision, botPlayer);
 
       // Debug snapshot (~1s) for the UI event log

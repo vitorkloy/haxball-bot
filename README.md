@@ -247,6 +247,10 @@ Para mais detalhes técnicos, veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 4. Use `!status` para ver o estado interno do bot
 5. Execute `npm test` após mudanças no código
 
+## 🧠 IA, simulador e treino
+
+Veja [docs/IA-E-TREINO.md](docs/IA-E-TREINO.md): como a IA decide, `npm run match`, `npm run eval` e como retreinar com `npm run train`.
+
 ## 🐛 Solução de Problemas
 
 ### "Erro ao criar sala: invalid token"
