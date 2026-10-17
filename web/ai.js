@@ -42,6 +42,21 @@ export const PARAM_SPACE = {
   passClearance: [10, 50],
   steerGain: [0.04, 0.4],
   deadzone: [0.02, 0.5],
+  cutSide: [20, 120],
+  hyst: [0.1, 1],
+  holdMs: [0, 120],
+  lookahead: [0, 12],
+  arriveK: [3, 30],
+  nearDist: [2, 15],
+  carrySpeed: [0.8, 2.4],
+  slowSpeed: [0.6, 2.4],
+  engageDist: [40, 140],
+  commitVel: [0, 2.5],
+  selfPassDist: [25, 90],
+  selfPassLead: [10, 100],
+  shieldDist: [20, 80],
+  shieldBlend: [0, 1],
+  cutForward: [0, 60],
   predictTicks: [60, 200]
 };
 
@@ -148,6 +163,8 @@ export class BotAI {
     this.lastDecision = ZERO;
     this.rng = config?.ai?.rng || Math.random;
     this.debug = null;
+    this.move = null; // jogada de drible atual (para o log)
+    this.held = { x: 0, y: 0, since: -Infinity };
   }
 
   /**
@@ -162,6 +179,7 @@ export class BotAI {
     const reaction = this.config?.ai?.reactionTime ?? 0;
     if (now - this.lastDecisionTime < reaction) return this.lastDecision;
     this.lastDecisionTime = now;
+    this.now = now;
 
     const ctx = this.buildContext(gameState, botPlayer, roomState);
     const decision = ctx ? this.think(ctx) : { ...ZERO };
@@ -240,17 +258,24 @@ export class BotAI {
     if (ownGoalHit && (tMe <= ownGoalHit.t || tMate > tMe)) {
       const save = this.firstReachableBefore(me, path, reach, ownGoalHit.t) || ownGoalHit;
       this.currentState = GAME_STATES.INTERCEPT;
+      this.move = null;
       out = this.attackBall(ctx, save, 'clear');
     } else {
       const chaser = tMe <= tMate || (tMe === tMate && me.id < (mateI?.m.id ?? Infinity));
-      if (chaser && (!(tOpp + P.threatMargin < tMe) || ball.x > P.pressLine)) {
+      // bola parada e adversários parados (ex.: AFK colado na bola): não espera, vai na bola
+      const stalled = Math.hypot(ball.vx, ball.vy) < 0.05 && opps.every((o) => Math.hypot(o.vx, o.vy) < 0.05);
+      if (chaser && (!(tOpp + P.threatMargin < tMe) || ball.x > P.pressLine || stalled)) {
         out = this.attack(ctx, myI || { x: ball.x, y: ball.y, t: 0 }, tOpp - tMe);
       } else if (chaser || ball.x < 0 || mates.length === 0) {
         this.currentState = GAME_STATES.DEFEND;
+        this.move = null;
         out = this.defend(ctx, path);
+        out.urgent = true;
+        out.arrive = !out.kick;
       } else {
         this.currentState = GAME_STATES.POSITION;
         out = this.support(ctx);
+        out.arrive = true;
       }
     }
     this.debug = debug;
@@ -314,29 +339,77 @@ export class BotAI {
         }
       }
     }
-    // condução: em direção ao gol, desviando de quem está na frente
+    // condução / drible
     this.currentState = GAME_STATES.ATTACK;
-    let aim = { x: geo.goalX, y: 0 };
-    const dirGoal = unit(sub(aim, B));
+    return this.dribble(ctx, B);
+  }
+
+  /**
+   * Drible: escolhe a jogada pela posição e velocidade do defensor principal.
+   * - conduzir: sem marcação, toques suaves com o corpo (sem chute), bola um pouco à frente
+   * - proteger: defensor ao lado/atrás -> corpo entre a bola e ele, levando a bola para longe
+   * - finta: defensor à frente e longe -> aproxima devagar "armando o chute" na direção do gol
+   * - corte: defensor perto -> mudança brusca de direção para o lado livre, acelerando
+   * - autopasse: defensor perto e vindo com tudo -> toque curto no espaço ao lado/atrás dele
+   */
+  dribble(ctx, B) {
+    const P = this.params;
+    const { opps, geo } = ctx;
+    const goalAim = { x: geo.goalX, y: 0 };
+    const dirGoal = unit(sub(goalAim, B));
+    let D = null;
+    let best = Infinity;
     for (const o of opps) {
-      const rel = sub(o, B);
-      const ahead = dot(rel, dirGoal);
-      if (ahead > 0 && ahead < P.dribbleAvoid && Math.abs(cross(dirGoal, rel)) < o.r + ball.r + 20) {
-        const side = cross(dirGoal, rel) > 0 ? -1 : 1; // vai para o lado oposto ao defensor
-        let y = B.y + side * P.sidestep;
-        if (Math.abs(y) > geo.fieldY - 30) y = B.y - side * P.sidestep;
-        aim = { x: B.x + ahead + 30, y };
-        break;
-      }
+      const dd = dist(o, B);
+      if (dd < P.engageDist * 1.6 && dd < best) { best = dd; D = o; }
     }
-    return this.attackBall(ctx, B, 'dribble', aim);
+    if (!D) {
+      this.move = 'conduzir';
+      return this.attackBall(ctx, B, 'dribble', goalAim, { maxSpeed: P.carrySpeed });
+    }
+    const rel = sub(D, B);
+    const ahead = dot(rel, dirGoal);
+    const latOff = cross(dirGoal, rel);
+    const closing = dot({ x: D.vx, y: D.vy }, unit(sub(B, D)));
+    if (ahead < 0) {
+      if (best < P.shieldDist) {
+        this.move = 'proteger';
+        const away = unit(sub(B, D));
+        const dir = unit(add(mul(away, P.shieldBlend), mul(dirGoal, 1 - P.shieldBlend)));
+        return this.attackBall(ctx, B, 'dribble', add(B, mul(dir, 100)), { maxSpeed: P.carrySpeed });
+      }
+      this.move = 'conduzir';
+      return this.attackBall(ctx, B, 'dribble', goalAim, { maxSpeed: P.carrySpeed });
+    }
+    let side = latOff > 0 ? -1 : 1; // lado oposto ao defensor
+    const side0 = perp(dirGoal);
+    if (Math.abs(B.y + side * P.cutSide) > geo.fieldY - 30) side = -side;
+    const inLane = Math.abs(latOff) < D.r + 10 + 20;
+    if (!inLane) {
+      // defensor fora da linha até o gol: segue conduzindo (rápido se ele está longe)
+      this.move = 'conduzir';
+      return this.attackBall(ctx, B, 'dribble', goalAim, { maxSpeed: best > P.engageDist ? VMAX : P.carrySpeed });
+    }
+    if (best > P.engageDist) {
+      this.move = 'finta';
+      return this.attackBall(ctx, B, 'dribble', goalAim, { maxSpeed: P.slowSpeed });
+    }
+    if (closing > P.commitVel && best < P.selfPassDist) {
+      this.move = 'autopasse';
+      const space = add(D, add(mul(side0, side * P.cutSide), mul(dirGoal, P.selfPassLead)));
+      space.y = clamp(space.y, -geo.fieldY + 20, geo.fieldY - 20);
+      return this.attackBall(ctx, B, 'pass', space);
+    }
+    this.move = 'corte';
+    const aim = { x: B.x + ahead + P.cutForward, y: B.y + side * P.cutSide };
+    return this.attackBall(ctx, B, 'dribble', aim, { maxSpeed: VMAX });
   }
 
   /**
    * Chega por trás da bola em relação ao alvo e executa a ação.
    * mode: 'shoot' | 'pass' | 'clear' | 'dribble'
    */
-  attackBall(ctx, B, mode, aim = null) {
+  attackBall(ctx, B, mode, aim = null, opts = {}) {
     const P = this.params;
     const { me, ball, geo } = ctx;
     const reach = me.r + ball.r;
@@ -372,7 +445,7 @@ export class BotAI {
         kick = dist(me, ball) <= reach + P.kickReach && ang < (mode === 'clear' ? P.kickAngle * 2 : P.kickAngle);
       }
     }
-    return { target, kick, aimAngle: Math.atan2(u.y, u.x) };
+    return { target, kick, aimAngle: Math.atan2(u.y, u.x), maxSpeed: opts.maxSpeed, urgent: mode === 'clear' };
   }
 
   defend(ctx, path) {
@@ -424,27 +497,47 @@ export class BotAI {
     return { target, kick: false };
   }
 
-  /** Steering (velocidade desejada vs atual) + ruído de dificuldade; converte para o referencial real */
+  /**
+   * Movimento suave: "arrive" (desacelera soltando as teclas antes do alvo, já que parado o
+   * jogador ainda anda ~24x a velocidade), alvo visto a partir da posição prevista (`lookahead`),
+   * histerese por eixo e tempo mínimo segurando uma direção (`holdMs`) para não tremer.
+   */
   applyNoiseAndConvert(out, geo) {
     const P = this.params;
     let { target } = out;
+    const m = this.lastMe || { x: 0, y: 0, vx: 0, vy: 0 };
     const noise = this.config?.ai?.noise || 0;
     if (noise > 0 && target) {
       const ang = (this.rng() - 0.5) * 2 * noise;
       const c = Math.cos(ang), s = Math.sin(ang);
-      const m = this.lastMe || { x: 0, y: 0 };
       const rel = sub(target, m);
       target = add(m, { x: rel.x * c - rel.y * s, y: rel.x * s + rel.y * c });
     }
-    const m = this.lastMe || { x: 0, y: 0, vx: 0, vy: 0 };
-    const desired = mul(sub(target, m), P.steerGain);
-    const dl = len(desired);
-    const vd = dl > VMAX ? mul(desired, VMAX / dl) : desired;
+    const look = { x: m.x + m.vx * P.lookahead, y: m.y + m.vy * P.lookahead };
+    const to = sub(target, look);
+    const d = len(to);
+    const vmax = Math.min(out.maxSpeed ?? VMAX, VMAX);
+    // arrive só em alvos de posição (defesa/apoio); perseguindo a bola vai com tudo
+    const speed = out.arrive ? Math.min(vmax, d / P.arriveK) : Math.min(vmax, d * P.steerGain);
+    const vd = d > 1e-6 ? mul(to, speed / d) : { x: 0, y: 0 };
     const dv = { x: vd.x - m.vx, y: vd.y - m.vy };
-    let dirX = Math.abs(dv.x) > P.deadzone ? Math.sign(dv.x) : 0;
-    const dirY = Math.abs(dv.y) > P.deadzone ? Math.sign(dv.y) : 0;
-    dirX *= geo.attack;
+    const h = this.held;
+    const axis = (cur, comp) => {
+      if (cur !== 0 && Math.sign(comp) === cur && Math.abs(comp) > P.deadzone * P.hyst) return cur;
+      return Math.abs(comp) > P.deadzone ? Math.sign(comp) : 0;
+    };
+    let dirX = axis(h.x, dv.x);
+    let dirY = axis(h.y, dv.y);
+    if (dist(m, target) < P.nearDist && len({ x: m.vx, y: m.vy }) < 0.6) { dirX = 0; dirY = 0; }
+    const now = this.now ?? 0;
+    const hold = out.urgent || out.kick ? P.holdMs * 0.3 : P.holdMs;
+    if ((dirX !== h.x || dirY !== h.y)) {
+      // inverter sentido é o que mais "treme": só depois do tempo mínimo
+      const reversing = (h.x !== 0 && dirX === -h.x) || (h.y !== 0 && dirY === -h.y);
+      if (now - h.since < (reversing ? hold : hold * 0.5)) { dirX = h.x; dirY = h.y; }
+      else { h.x = dirX; h.y = dirY; h.since = now; }
+    }
     this.lastTarget = { x: target.x * geo.attack, y: target.y };
-    return { dirX: dirX || 0, dirY: dirY || 0, kick: !!out.kick };
+    return { dirX: dirX * geo.attack || 0, dirY: dirY || 0, kick: !!out.kick };
   }
 }
