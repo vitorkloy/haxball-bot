@@ -51,21 +51,13 @@ function logEvent(message) {
 }
 
 function parseRoomLink(link) {
-  try {
-    const url = new URL(link);
-    if (!url.hostname.includes('haxball.com')) {
-      throw new Error('Link inválido');
-    }
-    
-    const roomId = url.searchParams.get('c');
-    if (!roomId) {
-      throw new Error('ID da sala não encontrado no link');
-    }
-    
-    return roomId;
-  } catch (error) {
-    throw new Error('Link inválido. Use o formato: https://www.haxball.com/play?c=XXXXX');
-  }
+  // Accepts: full links with extra params (e.g. &p=1), links without
+  // protocol, "?c=ID" fragments, or a bare room id.
+  const text = String(link || '').trim();
+  const fromParam = text.match(/[?&#]c=([A-Za-z0-9_-]+)/);
+  if (fromParam) return fromParam[1];
+  if (/^[A-Za-z0-9_-]{6,}$/.test(text)) return text;
+  throw new Error('Link inválido. Use o formato: https://www.haxball.com/play?c=XXXXX (ou só o ID da sala)');
 }
 
 function updateStatus() {
@@ -207,6 +199,11 @@ async function joinRoom() {
         try { text = reason?.toString?.() || ''; } catch (e) {}
         if (!text || text === 'undefined' || text === '[object Object]') {
           text = reason?.code != null ? `código ${reason.code}` : '';
+        }
+        if (reason?.code === 8) {
+          text = 'código 8: falha na conexão WebRTC com o host. A rede bloqueou a conexão P2P (NAT/firewall). Tente outra rede ou rode localmente com npm run join';
+        } else if (reason?.code === 5) {
+          text = 'senha incorreta';
         }
         const detail = text ? ` (${text})` : '';
         logEvent('❌ Desconectado da sala' + detail);
