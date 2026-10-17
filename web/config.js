@@ -2,6 +2,7 @@
 export const DIFFICULTY_PRESETS = {
   easy: {
     reactionTime: 150,
+    noise: 0.35,
     predictionTicks: 15,
     kickPower: 0.7,
     positioningWeight: 0.5,
@@ -10,6 +11,7 @@ export const DIFFICULTY_PRESETS = {
   },
   medium: {
     reactionTime: 50,
+    noise: 0.15,
     predictionTicks: 30,
     kickPower: 1.0,
     positioningWeight: 0.7,
@@ -18,6 +20,7 @@ export const DIFFICULTY_PRESETS = {
   },
   hard: {
     reactionTime: 20,
+    noise: 0.06,
     predictionTicks: 45,
     kickPower: 1.0,
     positioningWeight: 0.85,
@@ -26,6 +29,7 @@ export const DIFFICULTY_PRESETS = {
   },
   insane: {
     reactionTime: 10,
+    noise: 0.02,
     predictionTicks: 60,
     kickPower: 1.0,
     positioningWeight: 0.95,
