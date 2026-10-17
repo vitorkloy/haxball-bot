@@ -24,21 +24,13 @@ const { values } = parseArgs({
 });
 
 function parseRoomLink(link) {
-  try {
-    const url = new URL(link);
-    if (!url.hostname.includes('haxball.com')) {
-      throw new Error('Link inválido');
-    }
-    
-    const roomId = url.searchParams.get('c');
-    if (!roomId) {
-      throw new Error('ID da sala não encontrado');
-    }
-    
-    return roomId;
-  } catch (error) {
-    throw new Error('Link inválido. Use: https://www.haxball.com/play?c=XXXXX');
-  }
+  // Accepts: full links with extra params (e.g. &p=1), links without
+  // protocol, "?c=ID" fragments, or a bare room id.
+  const text = String(link || '').trim();
+  const fromParam = text.match(/[?&#]c=([A-Za-z0-9_-]+)/);
+  if (fromParam) return fromParam[1];
+  if (/^[A-Za-z0-9_-]{6,}$/.test(text)) return text;
+  throw new Error('Link inválido. Use o formato: https://www.haxball.com/play?c=XXXXX (ou só o ID da sala)');
 }
 
 async function joinRoom() {
