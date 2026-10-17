@@ -77,6 +77,19 @@ export class BotController {
 
       const decision = this.ai.decide(currentGameState, botPlayer);
       this.executeDecision(decision, botPlayer);
+
+      // Debug snapshot (~1s) for the UI event log
+      const now = Date.now();
+      if (this.onDebug && now - (this.lastDebugAt || 0) > 1000) {
+        this.lastDebugAt = now;
+        const me = botPlayer.disc.ext || botPlayer.disc;
+        const ball = currentGameState.physicsState?.discs?.[0];
+        const f = (v) => (v == null ? '?' : Math.round(v));
+        this.onDebug(
+          `bot(${f(me?.pos?.x)},${f(me?.pos?.y)}) bola(${f(ball?.pos?.x)},${f(ball?.pos?.y)}) ` +
+          `dir(${decision.dirX},${decision.dirY}) chute=${decision.kick ? 1 : 0} teclas=${this.lastKeyState} estado=${this.ai.currentState}`
+        );
+      }
     } catch (error) {
       console.error('❌ Erro no update do bot:', error.message);
     }
@@ -107,10 +120,12 @@ export class BotController {
    */
   encodeKeyState(dirX, dirY, kick) {
     let state = 0;
-    if (dirX === 1) state |= 1;  // Right
-    if (dirX === -1) state |= 2; // Left
-    if (dirY === 1) state |= 4;  // Down
-    if (dirY === -1) state |= 8; // Up
+    // Real Haxball bits (same as node-haxball Utils.keyState):
+    // up = 1, down = 2, left = 4, right = 8, kick = 16
+    if (dirY === -1) state |= 1; // Up
+    if (dirY === 1) state |= 2;  // Down
+    if (dirX === -1) state |= 4; // Left
+    if (dirX === 1) state |= 8;  // Right
     if (kick) state |= 16;       // Kick
     return state;
   }

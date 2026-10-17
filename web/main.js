@@ -170,6 +170,7 @@ async function joinRoom() {
         // Create bot controller
         const config = getConfig(difficulty, botName, avatar);
         botController = new BotController(room, config);
+        botController.onDebug = (msg) => logEvent('🔎 ' + msg);
         botController.initialize();
         
         logEvent(`Bot inicializado`);

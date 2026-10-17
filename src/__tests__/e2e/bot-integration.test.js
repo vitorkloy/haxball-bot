@@ -62,13 +62,14 @@ describe('E2E Bot Integration', () => {
   test('bot should encode key states correctly', () => {
     const testCases = [
       { dirX: 0, dirY: 0, kick: false, expected: 0 },
-      { dirX: 1, dirY: 0, kick: false, expected: 1 },
-      { dirX: -1, dirY: 0, kick: false, expected: 2 },
-      { dirX: 0, dirY: 1, kick: false, expected: 4 },
-      { dirX: 0, dirY: -1, kick: false, expected: 8 },
-      { dirX: 1, dirY: 1, kick: false, expected: 5 },
+      { dirX: 1, dirY: 0, kick: false, expected: 8 },
+      { dirX: -1, dirY: 0, kick: false, expected: 4 },
+      { dirX: 0, dirY: 1, kick: false, expected: 2 },
+      { dirX: 0, dirY: -1, kick: false, expected: 1 },
+      { dirX: 1, dirY: 1, kick: false, expected: 10 },
+      { dirX: -1, dirY: -1, kick: false, expected: 5 },
       { dirX: 0, dirY: 0, kick: true, expected: 16 },
-      { dirX: 1, dirY: 0, kick: true, expected: 17 }
+      { dirX: 1, dirY: 0, kick: true, expected: 24 }
     ];
 
     room = createSimpleMockRoom();
@@ -81,6 +82,13 @@ describe('E2E Bot Integration', () => {
         testCase.kick
       );
       expect(result).toBe(testCase.expected);
+    }
+  });
+
+  test('encodeKeyState matches node-haxball Utils.keyState', () => {
+    botController = new BotController(createSimpleMockRoom(), config);
+    for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) for (const k of [false, true]) {
+      expect(botController.encodeKeyState(dx, dy, k)).toBe(Utils.keyState(dx, dy, k));
     }
   });
 
