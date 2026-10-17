@@ -27,6 +27,29 @@ Papéis / estados:
     chuta para a frente e para a lateral.
 - **POSITION (apoio, 2v2)**: o jogador que não chega primeiro na bola fica atrás dela (`supportDist`).
 
+### Drible (jogadas escolhidas pela posição e velocidade do defensor principal)
+
+- **conduzir**: sem marcação na linha até o gol → carrega a bola com toques suaves do corpo (sem chute),
+  bola um pouco à frente (`pushDist`), velocidade limitada (`carrySpeed`) quando há defensor por perto.
+- **proteger**: defensor ao lado/atrás e perto (`shieldDist`) → leva a bola para longe dele, com o corpo
+  entre a bola e o defensor (`shieldBlend` mistura "longe do defensor" com "rumo ao gol").
+- **finta / mudança de ritmo**: defensor na frente e ainda longe (`engageDist`) → aproxima devagar
+  (`slowSpeed`) alinhado como se fosse chutar...
+- **corte**: ...e quando ele chega perto, muda de direção bruscamente para o lado livre (`cutSide`,
+  `cutForward`) acelerando ao máximo.
+- **autopasse**: defensor perto (`selfPassDist`) e vindo com tudo (`commitVel`) → toque curto no espaço
+  ao lado/atrás dele (`selfPassLead`) e corre para pegar.
+
+### Movimento suave
+
+As teclas do Haxball são digitais (8 direções). Para não "tremer":
+- **arrive**: em alvos de posição (defesa/apoio) a velocidade desejada cai perto do alvo (`arriveK`),
+  então as teclas são soltas antes e o jogador desliza até parar;
+- **posição prevista**: o alvo é visto a partir de onde o jogador estará em `lookahead` ticks;
+- **histerese** por eixo (`deadzone` para apertar, `deadzone*hyst` para soltar) e **tempo mínimo**
+  segurando uma direção (`holdMs`; inverter o sentido exige o tempo todo);
+- parado perto do alvo (`nearDist`) não aperta nada.
+
 O chute só é apertado quando a bola está ao alcance (raio do jogador + raio da bola + `kickReach`)
 e o ângulo entre jogador→bola e a direção desejada é menor que `kickAngle` (o chute do Haxball sai
 na direção centro do jogador → centro da bola). O movimento usa "steering" (velocidade desejada
@@ -46,16 +69,73 @@ npm run match -- --mode 2v2 --red nova --blue nova
 npm run eval -- --matches 200            # IA nova vs IA antiga (src/ai-legacy.js)
 ```
 
-## Retreinar
+## Métricas do simulador
+
+`npm run eval` mostra, além de vitórias e gols:
+- **dribles bem-sucedidos por partida**: o jogador toca na bola com um defensor à frente (até 90 px,
+  na faixa de 50 px) e, em até 2,5 s, volta a tocar na bola já depois do defensor sem que o adversário
+  tenha tocado nela;
+- **trocas de direção por segundo** (por jogador): quantas vezes as teclas de direção mudam — quanto
+  menor, mais suave.
 
 ```bash
-npm run train -- --gens 20 --pop 16 --matches 8
+npm run eval -- --vs pr5 --matches 200        # contra a IA do PR #5 (scripts/baselines/)
+npm run eval -- --vs pr5 --matches 100 --size 2
+npm run eval -- --vs antiga                    # contra a primeira IA (src/ai-legacy.js)
 ```
 
-O treino é uma estratégia evolutiva (1+λ): a cada geração cria `pop` variações dos parâmetros atuais
-(dentro das faixas de `PARAM_SPACE` em `src/ai.js`), cada uma joga `matches` partidas contra o melhor
-atual e contra a IA antiga (1v1 e algumas 2v2), em paralelo usando todos os núcleos. O melhor
-candidato só é aceito se confirmar a vantagem em mais partidas. No fim, os parâmetros são salvos em
-`src/ai-params.json`, `src/ai-params.js` e `web/ai-params.js` (usado pela página).
+## Retreinar: liga de self-play
+
+```bash
+npm run train            # 20 gerações
+npm run train:loop       # contínuo, até Ctrl+C
+npm run train:loop -- --minutes 480   # ex.: 8 horas
+```
+
+Como funciona (`scripts/train.js`):
+- o **campeão** atual é `src/ai-params.json`; cada geração cria `--pop` variações dele;
+- **triagem com parada antecipada**: cada candidato joga metade das partidas de triagem contra o campeão;
+  se já está claramente pior (média + 1,64·erro padrão < 0), é descartado sem jogar o resto;
+- **objetivo por partida** (candidato − adversário na mesma partida):
+  `saldo de gols + 0,5·dribles − 0,05·trocas de direção/s` (pesos `--wDrib`, `--wKeys`);
+- o melhor da triagem joga a **confirmação** (`--confirm` partidas 1v1 + 2v2) e só é **promovido** se
+  `média − 1,64·erro padrão > 0` (≈95% de confiança) **e** não regride contra a IA do PR #5
+  (≥48% dos pontos) nem contra os últimos campeões do **Hall da Fama**;
+- cada promoção grava o checkpoint (`src/ai-params.json`, `src/ai-params.js`, `web/ai-params.js`),
+  entra no Hall da Fama (`training/hall-of-fame.json`) e o log vai para `training/league-log.jsonl`
+  (com a taxa de vitórias contra o campeão anterior). O campeão novo vira o adversário da próxima geração.
+
+Ctrl+C para no fim da geração (o último checkpoint já está salvo).
+
+### Deixar rodando mais tempo (ex.: a noite toda)
+
+No PC ou num servidor (precisa de Node 18+; usa todos os núcleos):
+
+```bash
+git pull
+npm ci
+nohup npm run train:loop -- --minutes 600 > treino.log 2>&1 &   # 10 horas em segundo plano
+tail -f treino.log                                              # acompanhar
+```
+
+De manhã, confira e publique:
+
+```bash
+npm run eval -- --vs pr5 --matches 200
+npm test && npm run build
+git checkout -b treino-noturno
+git add src/ai-params.json src/ai-params.js web/ai-params.js training/
+git commit -m "chore: parâmetros da IA após treino noturno"
+git push -u origin treino-noturno    # e abra um PR
+```
+
+No Windows, use `npm run train:loop -- --minutes 600` num terminal que fique aberto.
+
+### Opção com GitHub Actions (manual)
+
+Dá para rodar a liga num runner do GitHub (até 6 h por job, 4 núcleos) com um workflow
+`workflow_dispatch` que execute `npm ci && npm run train:loop -- --minutes 300` e abra um PR com os
+arquivos alterados. Esse arquivo não foi incluído neste PR (o token usado não pode alterar workflows);
+crie-o pela interface do GitHub se quiser.
 
 Depois de mudar `src/ai.js` ou `src/bot-controller.js`, rode `npm run sync-web` para copiar para `web/`.

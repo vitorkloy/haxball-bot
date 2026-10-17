@@ -112,7 +112,7 @@ describe('decisões da IA', () => {
 
   test('antecipa o chute adversário e vai para a linha do chute', () => {
     const me = player(1, 1, -250, -120);
-    const opp = player(2, 2, -100, 0); // atrás da bola, mirando o nosso gol
+    const opp = player(2, 2, -100, 0, -0.5, 0); // atrás da bola, vindo para chutar no nosso gol
     const { gameState, roomState } = world({ x: -125, y: 0 }, [me, opp]);
     const ai = new BotAI(cfg);
     const d = ai.decide(gameState, me, roomState, 0);
@@ -128,5 +128,68 @@ describe('decisões da IA', () => {
     gameState.physicsState.discs[0].pos = { x: -100, y: 0 };
     const d2 = ai.decide(gameState, me, roomState, 1050);
     expect(d2).toBe(d1);
+  });
+});
+
+describe('movimento suave e drible', () => {
+  test('histerese/tempo mínimo: não inverte a direção a cada tick', () => {
+    const ai = new BotAI(cfg, null, { holdMs: 100, hyst: 0.3, lookahead: 0 });
+    const me = player(1, 1, 0, 0, 1, 0);
+    const { gameState, roomState } = world({ x: 200, y: 0 }, [me]);
+    ai.decide(gameState, me, roomState, 0);
+    // alvo "pula" para trás logo em seguida: dentro do holdMs mantém a direção
+    gameState.physicsState.discs[0].pos = { x: -200, y: 0 };
+    const d = ai.decide(gameState, me, roomState, 16);
+    expect(d.dirX).toBe(1);
+    const later = ai.decide(gameState, me, roomState, 400);
+    expect(later.dirX).toBe(-1);
+  });
+
+  test('para perto do alvo sem tremer (arrive)', () => {
+    const ai = new BotAI(cfg, null, { nearDist: 10 });
+    const out = ai.applyNoiseAndConvert.call(Object.assign(ai, { lastMe: { x: 0, y: 0, vx: 0, vy: 0 }, now: 0 }),
+      { target: { x: 3, y: -2 }, arrive: true }, { attack: 1 });
+    expect(out).toEqual({ dirX: 0, dirY: 0, kick: false });
+  });
+
+  const dribbleCtx = (opp) => ({
+    me: { x: -25, y: 0, vx: 1, vy: 0, r: 15, id: 1 },
+    ball: { x: 0, y: 0, vx: 0, vy: 0, r: 10 },
+    mates: [],
+    opps: [opp],
+    geo
+  });
+  const P = { engageDist: 80, commitVel: 1, selfPassDist: 60, shieldDist: 45, cutSide: 60, cutForward: 20 };
+
+  test('sem marcação: conduz com toques suaves (sem chute)', () => {
+    const ai = new BotAI(cfg, null, P);
+    const out = ai.dribble(dribbleCtx({ x: 300, y: 150, vx: 0, vy: 0, r: 15 }), { x: 0, y: 0 });
+    expect(ai.move).toBe('conduzir');
+    expect(out.kick).toBe(false);
+  });
+
+  test('defensor à frente e longe: finta (arma o chute devagar)', () => {
+    const ai = new BotAI(cfg, null, P);
+    ai.dribble(dribbleCtx({ x: 110, y: 0, vx: 0, vy: 0, r: 15 }), { x: 0, y: 0 });
+    expect(ai.move).toBe('finta');
+  });
+
+  test('defensor perto e parado: corte para o lado livre', () => {
+    const ai = new BotAI(cfg, null, P);
+    const out = ai.dribble(dribbleCtx({ x: 50, y: 10, vx: 0, vy: 0, r: 15 }), { x: 0, y: 0 });
+    expect(ai.move).toBe('corte');
+    expect(out.target.y).toBeLessThan(5); // defensor um pouco acima -> corta para baixo (y menor)
+  });
+
+  test('defensor vindo com tudo: autopasse no espaço', () => {
+    const ai = new BotAI(cfg, null, P);
+    ai.dribble(dribbleCtx({ x: 45, y: 0, vx: -2, vy: 0, r: 15 }), { x: 0, y: 0 });
+    expect(ai.move).toBe('autopasse');
+  });
+
+  test('defensor atrás/ao lado: protege a bola com o corpo', () => {
+    const ai = new BotAI(cfg, null, P);
+    ai.dribble(dribbleCtx({ x: -20, y: 25, vx: 0, vy: 0, r: 15 }), { x: 0, y: 0 });
+    expect(ai.move).toBe('proteger');
   });
 });

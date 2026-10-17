@@ -15,9 +15,10 @@
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/unit",
     "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js src/__tests__/e2e",
-    "train": "node scripts/train.js",
+    "train": "node scripts/train.js --gens 20",
     "eval": "node scripts/eval.js",
-    "sync-web": "node scripts/sync-web.js"
+    "sync-web": "node scripts/sync-web.js",
+    "train:loop": "node scripts/train.js"
   },
   "keywords": [
     "haxball",
