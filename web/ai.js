@@ -3,6 +3,7 @@
 // o time do bot sempre ataca para +x; as direções são convertidas na saída.
 import DEFAULT_PARAMS from './ai-params.js';
 import { GAME_STATES } from './config.js';
+import { plan, DEFAULT_WEIGHTS } from './planner.js';
 
 // Física padrão do Haxball (playerPhysics / ballPhysics do Classic)
 const PLAYER_ACCEL = 0.1;
@@ -57,7 +58,8 @@ export const PARAM_SPACE = {
   shieldDist: [20, 80],
   shieldBlend: [0, 1],
   cutForward: [0, 60],
-  predictTicks: [60, 200]
+  predictTicks: [60, 200],
+  planDist: [10, 90]
 };
 
 const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
@@ -341,6 +343,15 @@ export class BotAI {
     }
     // condução / drible
     this.currentState = GAME_STATES.ATTACK;
+    // com a bola no pé: busca curta com a física (drible/condução/chute por lookahead)
+    // (só com o corpo atrás/ao lado da bola; do lado errado, contorna primeiro;
+    // no 2v2 só sob pressão, senão mantém condução/passe que já funcionavam)
+    if (this.usePlanner !== false && dist(me, ball) < me.r + ball.r + (P.planDist ?? 40) && ball.x - me.x > -(me.r + ball.r) * 0.3 &&
+      (mates.length === 0 || (this.plannerTeam !== false && opps.some((o) => dist(o, ball) < (P.planPress ?? 60))))) {
+      const best = plan({ me, ball, opps }, geo, { x: this.held.x * 1, y: this.held.y }, this.weights || DEFAULT_WEIGHTS);
+      this.move = best.kick ? (best.shot > 0 ? 'chute' : 'toque') : 'lookahead';
+      return { direct: best, kick: best.kick };
+    }
     return this.dribble(ctx, B);
   }
 
@@ -504,8 +515,20 @@ export class BotAI {
    */
   applyNoiseAndConvert(out, geo) {
     const P = this.params;
-    let { target } = out;
     const m = this.lastMe || { x: 0, y: 0, vx: 0, vy: 0 };
+    if (out.direct) {
+      // ação escolhida pelo planejador: já vem em teclas (8 direções), sem steering
+      const h = this.held;
+      const dX = out.direct.dirX, dY = out.direct.dirY;
+      const W = this.weights || DEFAULT_WEIGHTS;
+      // compromisso mínimo com a direção (evita "piscar" teclas), exceto para chutar
+      if ((dX !== h.x || dY !== h.y) && (out.kick || (this.now ?? 0) - h.since >= W.holdMs)) { h.x = dX; h.y = dY; h.since = this.now ?? 0; }
+      const dX2 = h.x, dY2 = h.y;
+      this.lastTarget = { x: (m.x + dX2 * 50) * geo.attack, y: m.y + dY2 * 50 };
+      return { dirX: dX2 * geo.attack || 0, dirY: dY2 || 0, kick: !!out.kick };
+    }
+    let { target } = out;
+    const m0 = this.lastMe || { x: 0, y: 0, vx: 0, vy: 0 };
     const noise = this.config?.ai?.noise || 0;
     if (noise > 0 && target) {
       const ang = (this.rng() - 0.5) * 2 * noise;

@@ -43,5 +43,6 @@ export default {
   "shieldDist": 53.509,
   "shieldBlend": 0.059,
   "cutForward": 28.844,
-  "predictTicks": 141.035
+  "predictTicks": 141.035,
+  "planDist": 40
 };
