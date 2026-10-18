@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Avalia a IA atual (src/ai.js + src/ai-params.js) contra a IA do PR #5 e a IA antiga.
-// Uso: npm run eval -- [--matches 200] [--size 1] [--vs pr5|antiga|nova] [--difficulty hard] [--ticks 3600]
+// Uso: npm run eval -- [--matches 200] [--size 1] [--vs pr7|pr5|antiga|nova] [--difficulty hard] [--ticks 3600]
 import { parseArgs } from 'node:util';
-import { series, newAI, legacyAI, pr5AI } from './sim.js';
+import { series, newAI, legacyAI, pr5AI, pr7AI } from './sim.js';
 
 const { values } = parseArgs({
   options: {
     matches: { type: 'string', default: '200' },
     size: { type: 'string', default: '1' },
-    vs: { type: 'string', default: 'pr5' },
+    vs: { type: 'string', default: 'pr7' },
     a: { type: 'string', default: 'nova' },
     difficulty: { type: 'string', default: 'hard' },
     ticks: { type: 'string', default: '3600' },
@@ -17,6 +17,7 @@ const { values } = parseArgs({
 });
 const make = (kind) => (s, st) =>
   kind === 'antiga' ? legacyAI({ stadium: st }) :
+  kind === 'pr7' ? pr7AI({ seed: s, difficulty: values.difficulty }) :
   kind === 'pr5' ? pr5AI({ seed: s, difficulty: values.difficulty }) :
   newAI({ seed: s, difficulty: values.difficulty });
 const t0 = Date.now();
@@ -26,3 +27,6 @@ console.log(`IA ${values.a} vs IA ${values.vs} (${values.difficulty}), ${values.
 console.log(`  vitórias ${r.wins}  empates ${r.draws}  derrotas ${r.losses}  (${(r.winRate * 100).toFixed(1)}% vitórias, ${(((r.wins + r.draws / 2) / r.n) * 100).toFixed(1)}% pontos)`);
 console.log(`  gols ${r.gf} x ${r.ga}  saldo médio ${r.goalDiff.toFixed(2)}/partida`);
 console.log(`  dribles bem-sucedidos ${r.dribbles.toFixed(2)}/partida (${(r.dribbleRate * 100).toFixed(0)}% das tentativas)  trocas de direção ${r.keyChangesPerSec.toFixed(2)}/s por jogador  (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+console.log(`  posse sob pressão (adversário a < 60 px): ${r.pressSecA.toFixed(1)}s x ${r.pressSecB.toFixed(1)}s/partida  toques sob pressão ${r.pressTouchA.toFixed(1)} x ${r.pressTouchB.toFixed(1)}  dribles sofridos ${r.oppDribbles.toFixed(2)}/partida`);
+const keysB = r.keyChangesPerSec - r.perMatch.reduce((s, m) => s + m.keys, 0) / r.n;
+console.log(`  trocas de direção/s por jogador: ${r.keyChangesPerSec.toFixed(2)} x ${keysB.toFixed(2)} (A x B)`);

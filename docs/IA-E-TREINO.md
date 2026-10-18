@@ -40,6 +40,42 @@ Papéis / estados:
 - **autopasse**: defensor perto (`selfPassDist`) e vindo com tudo (`commitVel`) → toque curto no espaço
   ao lado/atrás dele (`selfPassLead`) e corre para pegar.
 
+### Bola no pé: planejamento por lookahead (src/planner.js)
+
+Desde o PR do lookahead, quando o bot está com a bola (a até `planDist` px do contato,
+padrão 40, e com o corpo atrás/ao lado da bola) ele **não usa mais as jogadas fixas**
+de drible. Em vez disso faz uma busca curta usando a física do Haxball — sem treino:
+
+1. **Candidatos:** 9 direções (8 teclas + parado) × chutar ou não = 18 ações.
+2. **Simulação:** cada ação é mantida por `plyA` = 5 ticks; depois, para as ações sem
+   chute, testa-se a melhor continuação entre as 9 direções por mais `plyB` = 9 ticks
+   (busca de 2 níveis, 18 × 9 rolagens por decisão, ~1 ms). O modelo usa os valores
+   padrão da física: aceleração 0,1 (0,07 segurando o chute), amortecimento 0,96 do
+   jogador e 0,99 da bola, raios 15/10, colisão jogador–bola com massas inversas 0,5/1
+   e bCoef 0,5×0,5, chute de força 5 só quando a distância entre as bordas é < 4 px.
+   O adversário é modelado correndo direto na bola.
+3. **Avaliação escrita à mão** do estado final (`evaluate`, pesos em `DEFAULT_WEIGHTS`):
+   - `progress`: quanto a bola avançou em direção ao gol;
+   - `glue`: penaliza a bola longe do corpo (bola "colada");
+   - `front`: bônus com a bola à frente do corpo (fácil conduzir e chutar);
+   - `loose`: penaliza velocidade relativa bola–jogador (bola fugindo);
+   - `race`: penaliza o adversário mais perto da bola do que nós (o corpo tem que
+     ficar entre a bola e o defensor = proteção);
+   - `pressure`/`safeDist`: penaliza a bola a menos de 40 px do defensor;
+   - `lateral`: com o defensor à frente, bônus por tirar a bola da linha dele (empurrar
+     para o lado oposto e trocar de lado quando ele se compromete);
+   - `wall`: evita prender a bola na lateral;
+   - `shot`: o chute só vale se a bola prevista entra no gol antes de qualquer adversário
+     alcançá-la (chute de primeira/"apertar" a bola quando a chance aparece).
+4. **Suavidade:** penalidade `keep` para trocar de tecla e `reverse` para inverter o
+   sentido, e compromisso mínimo `holdMs` = 50 ms com a direção escolhida (exceto para
+   chutar). A ação sai direto como teclas, sem o steering intermediário.
+
+Fora da bola (aproximação, defesa, interceptação, apoio e passes no 2v2) a lógica
+continua a mesma de antes, para não perder o que já funcionava. A versão anterior ao
+lookahead está congelada em `scripts/baselines/ai-pr7.js` (+ `ai-params-pr7.js`) e é o
+adversário padrão do `npm run eval`.
+
 ### Movimento suave
 
 As teclas do Haxball são digitais (8 direções). Para não "tremer":
@@ -70,6 +106,11 @@ npm run eval -- --matches 200            # IA nova vs IA antiga (src/ai-legacy.j
 ```
 
 ## Métricas do simulador
+
+- **Posse sob pressão:** segundos por partida em que só um time está com a bola colada
+  (até 8 px do contato) e há um adversário a menos de 60 px da bola; **toques sob
+  pressão** conta os contatos nessas condições. Substitui na prática a métrica de
+  "dribles bem-sucedidos", que quase nunca dispara entre bots.
 
 `npm run eval` mostra, além de vitórias e gols:
 - **dribles bem-sucedidos por partida**: o jogador toca na bola com um defensor à frente (até 90 px,
@@ -139,3 +180,17 @@ arquivos alterados. Esse arquivo não foi incluído neste PR (o token usado não
 crie-o pela interface do GitHub se quiser.
 
 Depois de mudar `src/ai.js` ou `src/bot-controller.js`, rode `npm run sync-web` para copiar para `web/`.
+
+## Resultados do lookahead vs main (PR #7), simulador, dificuldade hard, partidas de 1 min
+
+| Confronto | Partidas | V / E / D | Pontos | Gols | Posse sob pressão (nós x eles) |
+|---|---|---|---|---|---|
+| 1v1 (seed 424242) | 200 | 71 / 94 / 35 | 59,0% | 121 x 79 | 6,1 s x 10,3 s |
+| 1v1 (seed 777) | 200 | 80 / 89 / 31 | 62,3% | 130 x 72 | 8,3 s x 9,3 s |
+| 2v2 (seed 424242) | 100 | 26 / 50 / 24 | 51,0% | 46 x 42 | 9,7 s x 11,1 s |
+
+Contra a IA do PR #5: 1v1, 100 partidas, 87,5% pontos (153 x 9).
+
+Limitações conhecidas: o adversário no modelo só corre direto na bola; a busca não
+considera companheiros (no 2v2 o planejador só entra sob pressão); o tempo de posse sob
+pressão ficou menor que o do main (o bot solta/finaliza a bola mais cedo em vez de segurá-la).

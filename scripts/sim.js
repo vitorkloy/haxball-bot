@@ -3,6 +3,7 @@ import HaxballAPI from 'node-haxball';
 import { BotAI } from '../src/ai.js';
 import { BotAI as LegacyAI } from '../src/ai-legacy.js';
 import { BotAI as Pr5AI } from './baselines/ai-pr5.js';
+import { BotAI as Pr7AI } from './baselines/ai-pr7.js';
 import { PhysicsPredictor } from '../src/physics.js';
 import { DIFFICULTY_PRESETS } from '../src/config.js';
 
@@ -48,6 +49,13 @@ export function pr5AI({ difficulty = 'hard', seed = 1 } = {}) {
   return (gs, player, state, now) => ai.decide(gs, player, state, now);
 }
 
+/** IA do PR #7 (main antes do lookahead) */
+export function pr7AI({ difficulty = 'hard', seed = 1 } = {}) {
+  const preset = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.hard;
+  const ai = new Pr7AI({ ai: { ...preset, rng: rng(seed) } });
+  return (gs, player, state, now) => ai.decide(gs, player, state, now);
+}
+
 export function legacyAI({ difficulty = 'medium', stadium } = {}) {
   const preset = DIFFICULTY_PRESETS[difficulty] || DIFFICULTY_PRESETS.medium;
   // reactionTime 0: a IA antiga usa Date.now(), que não avança no simulador
@@ -87,7 +95,7 @@ export function runMatch({ red, blue, ticks = 60 * 60 * 2, stadiumIndex = 0, sco
   sb.setSimulationSpeed(0);
 
   // métricas: trocas de tecla (suavidade) e dribles bem-sucedidos
-  const stats = { 1: { keyChanges: 0, dribbles: 0, attempts: 0, players: red.length }, 2: { keyChanges: 0, dribbles: 0, attempts: 0, players: blue.length } };
+  const stats = { 1: { keyChanges: 0, dribbles: 0, attempts: 0, pressTouches: 0, pressTicks: 0, players: red.length }, 2: { keyChanges: 0, dribbles: 0, attempts: 0, pressTouches: 0, pressTicks: 0, players: blue.length } };
   const teamOf = new Map(ctrls.map((c) => [c.id, c.id <= red.length ? 1 : 2]));
   let attempt = null; // { pid, team, oppId, start }
 
@@ -121,6 +129,22 @@ export function runMatch({ red, blue, ticks = 60 * 60 * 2, stadiumIndex = 0, sco
     for (const p of state.players) {
       if (!p.disc || !teamOf.has(p.id)) continue;
       if (Math.hypot(p.disc.pos.x - b.x, p.disc.pos.y - b.y) <= p.disc.radius + ball.radius + 1.5) touching.push(p);
+    }
+    // posse sob pressão: tick em que só um time está com a bola colada (<= 8 px do contato)
+    // e há um adversário a menos de 60 px da bola; toques = contatos nessas condições
+    const owners = new Set();
+    for (const p of state.players) {
+      if (!p.disc || !teamOf.has(p.id)) continue;
+      if (Math.hypot(p.disc.pos.x - b.x, p.disc.pos.y - b.y) <= p.disc.radius + ball.radius + 8) owners.add(teamOf.get(p.id));
+    }
+    if (owners.size === 1) {
+      const team = [...owners][0];
+      const pressed = state.players.some((o) => o.disc && teamOf.has(o.id) && teamOf.get(o.id) !== team &&
+        Math.hypot(o.disc.pos.x - b.x, o.disc.pos.y - b.y) < 60);
+      if (pressed) {
+        stats[team].pressTicks++;
+        if (touching.some((p) => teamOf.get(p.id) === team)) stats[team].pressTouches++;
+      }
     }
     if (attempt && tick - attempt.start > 150) attempt = null;
     for (const p of touching) {
@@ -156,7 +180,7 @@ export function runMatch({ red, blue, ticks = 60 * 60 * 2, stadiumIndex = 0, sco
  * makeA/makeB: (seed, stadium) => controlador. size: jogadores por time.
  */
 export function series(makeA, makeB, { n = 10, size = 1, ticks, seed = 1 } = {}) {
-  let wins = 0, draws = 0, losses = 0, gf = 0, ga = 0, dribbles = 0, attempts = 0, keyRate = 0;
+  let wins = 0, draws = 0, losses = 0, gf = 0, ga = 0, dribbles = 0, attempts = 0, keyRate = 0, pressA = 0, pressB = 0, touchA = 0, touchB = 0, oppDribbles = 0;
   const perMatch = [];
   for (let i = 0; i < n; i++) {
     const aRed = i % 2 === 0;
@@ -170,7 +194,8 @@ export function series(makeA, makeB, { n = 10, size = 1, ticks, seed = 1 } = {})
     const sa = r.stats[aRed ? 1 : 2];
     const sb2 = r.stats[aRed ? 2 : 1];
     perMatch.push({ gd: a - b, drib: sa.dribbles - sb2.dribbles, keys: sa.keyChanges / sa.players / (r.ticks / 60) - sb2.keyChanges / sb2.players / (r.ticks / 60) });
-    dribbles += sa.dribbles; attempts += sa.attempts;
+    dribbles += sa.dribbles; attempts += sa.attempts; oppDribbles += sb2.dribbles;
+    pressA += sa.pressTicks; pressB += sb2.pressTicks; touchA += sa.pressTouches; touchB += sb2.pressTouches;
     keyRate += sa.keyChanges / sa.players / (r.ticks / 60);
     if (a > b) wins++; else if (a < b) losses++; else draws++;
   }
@@ -178,6 +203,9 @@ export function series(makeA, makeB, { n = 10, size = 1, ticks, seed = 1 } = {})
     n, wins, draws, losses, gf, ga, winRate: wins / n, goalDiff: (gf - ga) / n,
     dribbles: dribbles / n, // dribles bem-sucedidos por partida
     dribbleRate: attempts ? dribbles / attempts : 0,
+    oppDribbles: oppDribbles / n,
+    pressSecA: pressA / n / 60, pressSecB: pressB / n / 60, // s de posse sob pressão por partida
+    pressTouchA: touchA / n, pressTouchB: touchB / n,
     keyChangesPerSec: keyRate / n, // trocas de direção por segundo, por jogador
     perMatch // diferenças A-B por partida (gols, dribles, trocas de tecla/s)
   };
