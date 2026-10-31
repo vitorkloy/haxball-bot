@@ -268,7 +268,13 @@ export class BotAI {
       const stalled = Math.hypot(ball.vx, ball.vy) < 0.05 && opps.every((o) => Math.hypot(o.vx, o.vy) < 0.05);
       if (chaser && (!(tOpp + P.threatMargin < tMe) || ball.x > P.pressLine || stalled)) {
         out = this.attack(ctx, myI || { x: ball.x, y: ball.y, t: 0 }, tOpp - tMe);
-      } else if (chaser || ball.x < 0 || mates.length === 0) {
+      } else if (!chaser && ball.x < 0 && mates.length > 0) {
+        // companheiro já vai na bola: cobre o gol (goleiro) em vez de empilhar na marcação
+        this.currentState = GAME_STATES.DEFEND;
+        this.move = null;
+        out = this.cover(ctx, path);
+        out.arrive = true;
+      } else if (chaser || mates.length === 0) {
         this.currentState = GAME_STATES.DEFEND;
         this.move = null;
         out = this.defend(ctx, path);
@@ -498,6 +504,14 @@ export class BotAI {
     let kick = false;
     if (dist(me, ball) <= me.r + ball.r + P.kickReach && unit(sub(ball, me)).x > 0.2) kick = true;
     return { target, kick };
+  }
+
+  /** 2+ no time: o não-chaser marca se está longe do companheiro; senão vira goleiro (não empilha). */
+  cover(ctx, path) {
+    const { me, mates, geo } = ctx;
+    const m = mates.reduce((a, b) => (dist(a, ctx.ball) < dist(b, ctx.ball) ? a : b));
+    if (dist(me, m) > 90) { const o = this.defend(ctx, path); o.urgent = true; return o; }
+    return { target: { x: -geo.goalX + 35, y: clamp(ctx.ball.y * 0.4, -geo.postY, geo.postY) }, kick: false };
   }
 
   support(ctx) {

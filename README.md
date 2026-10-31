@@ -34,6 +34,19 @@ Bot inteligente de Haxball com controle de bola, posicionamento tático, visão 
 - ✅ **Sem instalação**: Roda direto no navegador
 - ✅ **Interface visual**: Veja status, placar e estado da IA em tempo real
 
+## 👥 Vários bots na mesma sala
+
+A página permite colocar **até 6 bots** na mesma sala:
+
+1. Cole o link da sala (e a senha, se houver) — valem para todos os bots.
+2. Clique em **➕ Adicionar bot** quantas vezes quiser. Cada bot tem nick próprio (padrão `Bot1`, `Bot2`, ...; dá para editar), dificuldade, status, linha de debug e botões **Entrar/Parar** e **🗑️ remover**.
+3. Clique em **🎮 Entrar com todos**. Os bots entram **um de cada vez, com ~1,5 s de intervalo**, para não serem barrados por flood. **⏹️ Parar todos** desconecta todos.
+4. Na sala, coloque os bots nos times. Bots do mesmo time jogam juntos: quem chega antes na bola ataca; o outro marca ou vira goleiro, e eles trocam passes (não ficam todos atrás da bola).
+
+Cada bot é uma conexão separada (identidade/auth própria) na mesma aba; se um falhar (sala cheia, senha errada, WebRTC), os outros continuam.
+
+**Limites conhecidos:** o Haxball/host pode limitar conexões por IP ou kickar nicks repetidos; a sala tem limite de jogadores; todas as conexões passam pelo mesmo proxy público (pode ficar lento); abas em segundo plano reduzem a taxa de atualização (deixe a aba visível).
+
 ## 💻 Usar via CLI (Avançado)
 
 Se preferir rodar localmente via linha de comando ou criar salas próprias:

@@ -282,3 +282,10 @@ footer a:hover {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* Lista de bots */
+.bot-row { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #eee; }
+.bot-row input, .bot-row select { padding: 6px; }
+.bot-row .bot-status { font-size: 0.85em; white-space: nowrap; }
+.bot-row .bot-debug { grid-column: 1 / -1; font-family: monospace; font-size: 0.75em; color: #666; overflow-wrap: anywhere; }
+.bot-row button { padding: 6px 10px; }

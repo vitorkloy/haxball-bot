@@ -25,106 +25,32 @@
     </div>
 
     <div class="card" id="join-card">
-      <h2>Entrar em uma Sala</h2>
-      
+      <h2>Sala</h2>
       <div class="form-group">
         <label for="room-link">Link da Sala *</label>
-        <input 
-          type="text" 
-          id="room-link" 
-          placeholder="https://www.haxball.com/play?c=XXXXXX"
-          value=""
-        >
-        <small>Cole o link da sala do Haxball</small>
+        <input type="text" id="room-link" placeholder="https://www.haxball.com/play?c=XXXXXX" value="">
+        <small>Cole o link da sala do Haxball (vale para todos os bots)</small>
       </div>
-
-      <div class="form-group">
-        <label for="bot-name">Nome do Bot</label>
-        <input 
-          type="text" 
-          id="bot-name" 
-          placeholder="HaxBot"
-          value="HaxBot"
-          maxlength="15"
-        >
-      </div>
-
       <div class="form-group">
         <label for="password">Senha (opcional)</label>
-        <input 
-          type="password" 
-          id="password" 
-          placeholder="Deixe vazio se a sala não tem senha"
-        >
+        <input type="password" id="password" placeholder="Deixe vazio se a sala não tem senha">
       </div>
-
-      <div class="form-group">
-        <label for="difficulty">Dificuldade</label>
-        <select id="difficulty">
-          <option value="easy">Fácil</option>
-          <option value="medium" selected>Médio</option>
-          <option value="hard">Difícil</option>
-          <option value="insane">Insano</option>
-        </select>
-      </div>
-
       <div class="form-group">
         <label for="avatar">Avatar (emoji)</label>
-        <input 
-          type="text" 
-          id="avatar" 
-          value="🤖"
-          maxlength="2"
-        >
+        <input type="text" id="avatar" value="🤖" maxlength="2">
       </div>
-
-      <button id="join-btn" class="btn-primary">
-        🎮 Entrar e Jogar
-      </button>
-
       <div id="error-message" class="error-message" style="display: none;"></div>
     </div>
 
-    <div class="card" id="status-card" style="display: none;">
-      <h2>Status do Bot</h2>
-      
-      <div class="status-grid">
-        <div class="status-item">
-          <span class="status-label">Conexão:</span>
-          <span id="connection-status" class="status-value">Desconectado</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Sala:</span>
-          <span id="room-name" class="status-value">-</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Time:</span>
-          <span id="team-status" class="status-value">Espectador</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Placar:</span>
-          <span id="score" class="status-value">0 x 0</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Estado IA:</span>
-          <span id="ai-state" class="status-value">-</span>
-        </div>
-        
-        <div class="status-item">
-          <span class="status-label">Ativo:</span>
-          <span id="bot-active" class="status-value">❌ Não</span>
-        </div>
-      </div>
-
+    <div class="card" id="bots-card">
+      <h2>Bots <span id="bot-count" class="small-text"></span></h2>
+      <div id="bot-list"></div>
       <div class="controls">
-        <button id="toggle-btn" class="btn-secondary">▶️ Ativar Bot</button>
-        <button id="disconnect-btn" class="btn-danger">🚪 Desconectar</button>
+        <button id="add-bot-btn" class="btn-secondary">➕ Adicionar bot</button>
+        <button id="join-all-btn" class="btn-primary">🎮 Entrar com todos</button>
+        <button id="stop-all-btn" class="btn-danger">⏹️ Parar todos</button>
       </div>
-
+      <small>Os bots entram um de cada vez (~1,5 s de intervalo) para evitar bloqueio por flood. Bots no mesmo time jogam juntos: um vai na bola e o outro dá cobertura.</small>
       <div class="log-container">
         <h3>Log de Eventos</h3>
         <div id="event-log"></div>
