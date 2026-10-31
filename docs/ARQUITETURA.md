@@ -293,3 +293,4 @@ O uso em salas públicas pode resultar em **banimento** da conta e viola os term
 - `src/multi-bot.js` (copiado para `web/` pelo `npm run sync-web`): `BotManager` guarda a lista de bots (máx. 6), gera nicks únicos (`nextNick`) e o plano de entrada escalonada (`joinPlan`, 1,5 s entre bots).
 - `web/main.js`: um `Room.join` + `BotController` por bot, cada um com `Utils.generateAuth()` próprio; erros tratados por bot.
 - `src/ai.js`: com companheiro, o jogador que não vai na bola usa `cover()` (marca se está longe do companheiro, senão fica no gol), evitando dois bots na mesma bola.
+- Desde o PR de conexão: cada bot roda em `web/bot-frame.html` (iframe oculta, API node-haxball isolada, já que a biblioteca guarda config em globais como `EWG`). `main.js` usa `connectWithRetry` (20 s, 2 novas tentativas) e `runSequential` (um bot por vez), ambos em `src/multi-bot.js`.
