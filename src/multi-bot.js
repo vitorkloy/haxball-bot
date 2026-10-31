@@ -49,3 +49,53 @@ export class BotManager {
   }
   active() { return this.bots.filter((b) => b.status === STATUS.JOINING || b.status === STATUS.CONNECTED); }
 }
+
+export const CONNECT_TIMEOUT_MS = 20000;
+export const MAX_RETRIES = 2;
+
+/** Erros que não adianta repetir (senha errada, sala cheia, ban, captcha). */
+export function isFatalError(msg) {
+  return /senha|cheia|banido|expulso|captcha|inválido/i.test(String(msg || ''));
+}
+
+/**
+ * Tenta conectar com timeout e novas tentativas.
+ * attempt(n) -> { promise, cancel }: a promise resolve ao conectar e rejeita com Error ao falhar.
+ * Resolve com o valor da conexão; rejeita com o último erro. `isCancelled()` interrompe.
+ */
+export async function connectWithRetry(attempt, {
+  timeoutMs = CONNECT_TIMEOUT_MS, retries = MAX_RETRIES, onAttempt = () => {},
+  isCancelled = () => false, retryDelayMs = 2000, sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+} = {}) {
+  let lastErr;
+  for (let n = 1; n <= retries + 1; n++) {
+    if (isCancelled()) throw new Error('cancelado');
+    onAttempt(n, retries + 1);
+    const h = attempt(n);
+    let timer;
+    try {
+      return await Promise.race([
+        h.promise,
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`tempo esgotado (${timeoutMs / 1000}s) conectando`)), timeoutMs); })
+      ]);
+    } catch (e) {
+      lastErr = e;
+      try { h.cancel?.(); } catch (_) {}
+      if (isFatalError(e.message) || isCancelled()) throw e;
+      if (n <= retries) await sleep(retryDelayMs);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr;
+}
+
+/** Executa tarefas assíncronas uma por vez (a próxima só começa quando a anterior conectou ou falhou). */
+export async function runSequential(items, fn, { gapMs = 1000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const results = [];
+  for (let i = 0; i < items.length; i++) {
+    if (i > 0 && gapMs) await sleep(gapMs);
+    try { results.push({ ok: true, value: await fn(items[i], i) }); } catch (e) { results.push({ ok: false, error: e }); }
+  }
+  return results;
+}

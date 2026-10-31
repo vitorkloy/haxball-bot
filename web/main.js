@@ -1,18 +1,15 @@
-import { BotController } from './bot-controller.js';
-import { getConfig } from './config.js';
-import { BotManager, STATUS, JOIN_STAGGER_MS } from './multi-bot.js';
+import { BotManager, STATUS, JOIN_STAGGER_MS, connectWithRetry, runSequential } from './multi-bot.js';
 
 const manager = new BotManager();
 // id -> { room, controller, pendingJoin, timer, interval }
 const runtime = new Map();
-let api = null;
 
 const $ = (id) => document.getElementById(id);
 const listEl = $('bot-list');
 const errorMsg = $('error-message');
 const TEAM = ['⚪ Espec.', '🔴 Verm.', '🔵 Azul'];
 const STATUS_LABEL = {
-  [STATUS.IDLE]: '⏹️ Parado', [STATUS.JOINING]: '⏳ Conectando', [STATUS.CONNECTED]: '✅ Na sala', [STATUS.ERROR]: '❌ Erro'
+  [STATUS.IDLE]: '⏹️ Parado', [STATUS.JOINING]: '⏳ Conectando…', [STATUS.CONNECTED]: '✅ Na sala', [STATUS.ERROR]: '❌ Erro'
 };
 
 function showError(message) {
@@ -41,27 +38,6 @@ function parseRoomLink(link) {
   throw new Error('Link inválido. Use o formato: https://www.haxball.com/play?c=XXXXX (ou só o ID da sala)');
 }
 
-function getAPI() {
-  if (api) return api;
-  if (typeof abcHaxballAPI === 'undefined') throw new Error('Biblioteca node-haxball não carregada. Recarregue a página.');
-  api = abcHaxballAPI(window, {
-    proxy: { WebSocketUrl: 'wss://node-haxball.onrender.com/', HttpUrl: 'https://node-haxball.onrender.com/rs/' }
-  });
-  return api;
-}
-
-function closeReason(reason) {
-  if (reason?.code === 8) return 'código 8: falha WebRTC com o host (NAT/firewall). Tente outra rede ou npm run join';
-  if (reason?.code === 5) return 'senha incorreta';
-  let text = '';
-  try { text = reason?.toString?.() || ''; } catch (e) {}
-  if (!text || text === 'undefined' || text === '[object Object]') text = reason?.code != null ? `código ${reason.code}` : '';
-  if (/captcha/i.test(text)) return 'a sala exige CAPTCHA (bots não resolvem)';
-  if (/full/i.test(text)) return 'sala cheia';
-  if (/banned|kick/i.test(text)) return 'expulso/banido';
-  return text;
-}
-
 // ---------- UI ----------
 function renderRow(bot) {
   let row = listEl.querySelector(`[data-id="${bot.id}"]`);
@@ -87,23 +63,19 @@ function renderRow(bot) {
     });
     row.querySelector('.bot-diff').addEventListener('change', (e) => {
       manager.update(bot.id, { difficulty: e.target.value });
-      const rt = runtime.get(bot.id);
-      if (rt?.controller) { // aplica na hora, recriando a IA
-        rt.controller.config = getConfig(e.target.value, bot.nick, $('avatar').value || '🤖');
-        rt.controller.ai = null;
-      }
+      runtime.get(bot.id)?.handle?.setDifficulty(e.target.value); // aplica na hora
     });
     row.querySelector('.bot-toggle').addEventListener('click', () => {
       const b = manager.get(bot.id);
       if (b.status === STATUS.JOINING || b.status === STATUS.CONNECTED) stopBot(bot.id);
-      else joinBot(bot.id);
+      else joinBot(bot.id).catch(() => {});
     });
     row.querySelector('.bot-remove').addEventListener('click', () => removeBot(bot.id));
     listEl.appendChild(row);
   }
   const busy = bot.status === STATUS.JOINING || bot.status === STATUS.CONNECTED;
   const rt = runtime.get(bot.id);
-  const team = rt?.room?.currentPlayer?.team?.id;
+  const team = rt?.handle?.team?.();
   row.querySelector('.bot-status').textContent =
     STATUS_LABEL[bot.status] + (bot.status === STATUS.CONNECTED && team != null ? ` ${TEAM[team] || ''}` : '');
   row.querySelector('.bot-status').title = bot.error || '';
@@ -117,7 +89,7 @@ function renderAll() {
   $('bot-count').textContent = `(${manager.bots.length}/${manager.max})`;
   $('add-bot-btn').disabled = !manager.canAdd();
   $('join-all-btn').disabled = manager.joinPlan().length === 0;
-  $('stop-all-btn').disabled = manager.active().length === 0 && ![...runtime.values()].some((r) => r.timer);
+  $('stop-all-btn').disabled = manager.active().length === 0 && !joiningAll;
 }
 
 function setStatus(id, status, extra = {}) {
@@ -140,100 +112,131 @@ function removeBot(id) {
   renderAll();
 }
 
-// ---------- Conexão por bot ----------
+// ---------- Conexão por bot (cada bot numa iframe isolada) ----------
+function frameUrl() {
+  return new URL('bot-frame.html', document.baseURI).href;
+}
+
+/** Cria uma iframe nova e espera o startBot dela ficar pronto. */
+function createFrame() {
+  return new Promise((resolve, reject) => {
+    const iframe = document.createElement('iframe');
+    iframe.className = 'bot-frame';
+    iframe.style.display = 'none';
+    iframe.src = frameUrl();
+    const t = setTimeout(() => reject(new Error('iframe do bot não carregou')), 15000);
+    const check = () => {
+      const w = iframe.contentWindow;
+      if (w?.botFrameReady && w.startBot) { clearTimeout(t); resolve(iframe); return true; }
+      return false;
+    };
+    iframe.addEventListener('load', () => {
+      if (check()) return;
+      iframe.contentWindow.addEventListener('botframe-ready', check);
+      const poll = setInterval(() => { if (check()) clearInterval(poll); }, 100);
+      setTimeout(() => clearInterval(poll), 15000);
+    });
+    document.body.appendChild(iframe);
+  });
+}
+
+/** Uma tentativa de conexão: { promise, cancel } (formato do connectWithRetry). */
+function attemptJoin(id, rt, params) {
+  let iframe = null, handle = null, cancelled = false;
+  const destroy = () => {
+    try { handle?.cancel(); } catch (e) {}
+    handle = null;
+    iframe?.remove();
+    iframe = null;
+  };
+  const promise = (async () => {
+    iframe = await createFrame();
+    if (cancelled) throw new Error('cancelado');
+    const bot = manager.get(id);
+    handle = iframe.contentWindow.startBot({ ...params, nick: bot.nick, difficulty: bot.difficulty }, {
+      onDebug: (m) => {
+        const joining = manager.get(id)?.status === STATUS.JOINING;
+        if (manager.update(id, { debug: joining ? `${rt.label} · ${m}` : m })) renderRow(manager.get(id));
+      },
+      onTeam: () => manager.get(id) && renderRow(manager.get(id)),
+      onClose: (text) => {
+        logEvent(`[${manager.get(id)?.nick || '?'}] ❌ desconectado (${text})`);
+        destroy();
+        if (runtime.get(id) === rt) runtime.delete(id);
+        setStatus(id, STATUS.ERROR, { error: text });
+      }
+    });
+    const info = await handle.promise;
+    rt.handle = handle;
+    rt.destroy = destroy;
+    return info;
+  })();
+  return { promise, cancel: () => { cancelled = true; destroy(); } };
+}
+
 async function joinBot(id) {
   const bot = manager.get(id);
   if (!bot) return;
   let roomId;
-  try { roomId = parseRoomLink($('room-link').value); } catch (e) { showError(e.message); return; }
-  if (!$('room-link').value.trim()) { showError('Por favor, cole o link da sala'); return; }
-  const password = $('password').value || undefined;
-  const avatar = $('avatar').value || '🤖';
-  const rt = { room: null, controller: null, pendingJoin: null, timer: null, interval: null, stopped: false };
+  try { roomId = parseRoomLink($('room-link').value); } catch (e) { showError(e.message); throw e; }
+  const params = { roomId, password: $('password').value || undefined, avatar: $('avatar').value || '🤖' };
+  const old = runtime.get(id);
+  if (old) { old.stopped = true; old.cancel?.(); old.destroy?.(); }
+  const rt = { stopped: false, handle: null, destroy: null, cancel: null };
   runtime.set(id, rt);
   setStatus(id, STATUS.JOINING, { error: '', debug: '' });
   logEvent(`[${bot.nick}] entrando na sala ${roomId}...`);
+  let current = null;
+  rt.cancel = () => current?.cancel();
   try {
-    const { Room, Utils } = getAPI();
-    // identidade própria por bot (cada conexão é um jogador distinto)
-    const [, authObj] = await Utils.generateAuth();
-    if (rt.stopped) return;
-    rt.pendingJoin = Room.join({ id: roomId, password, authObj }, {
-      storage: { player_name: bot.nick, avatar },
-      onOpen: (room) => {
-        rt.pendingJoin = null;
-        rt.room = room;
-        const controller = new BotController(room, getConfig(bot.difficulty, bot.nick, avatar));
-        controller.onDebug = (msg) => { manager.update(id, { debug: msg }); renderRow(manager.get(id) || bot); };
-        controller.initialize();
-        controller.setActive(!!room.gameState && room.currentPlayer?.team?.id > 0);
-        rt.controller = controller;
-        setupRoomEvents(id, rt);
-        rt.interval = setInterval(() => { controller.update(); }, 1000 / 60);
-        setStatus(id, STATUS.CONNECTED);
-        logEvent(`[${bot.nick}] ✅ conectado: ${room.name}`);
-      },
-      onClose: (reason) => {
-        const text = closeReason(reason);
-        logEvent(`[${bot.nick}] ❌ desconectado${text ? ` (${text})` : ''}`);
-        rt.room = null; // já fechada
-        cleanup(id, rt);
-        if (!rt.stopped) setStatus(id, STATUS.ERROR, { error: text || 'desconectado' });
+    const info = await connectWithRetry((n) => (current = attemptJoin(id, rt, params)), {
+      isCancelled: () => rt.stopped,
+      onAttempt: (n, total) => {
+        if (n > 1) logEvent(`[${bot.nick}] nova tentativa ${n}/${total}`);
+        rt.label = `Conectando (tentativa ${n}/${total})`;
+        setStatus(id, STATUS.JOINING, { debug: rt.label });
       }
     });
+    if (rt.stopped) return;
+    setStatus(id, STATUS.CONNECTED, { debug: '' });
+    logEvent(`[${bot.nick}] ✅ conectado: ${info?.name || ''}`);
   } catch (e) {
-    console.error(e);
-    cleanup(id, rt);
-    setStatus(id, STATUS.ERROR, { error: e.message });
-    logEvent(`[${bot.nick}] ❌ ${e.message}`);
+    if (rt.stopped) return;
+    if (runtime.get(id) === rt) runtime.delete(id);
+    const msg = e.message?.startsWith('código 8')
+      ? `${e.message}. Se só 1 bot conecta, a rede/host pode estar limitando conexões`
+      : e.message;
+    setStatus(id, STATUS.ERROR, { error: msg });
+    logEvent(`[${bot.nick}] ❌ ${msg}`);
+    throw e;
   }
-}
-
-function setupRoomEvents(id, rt) {
-  const { room, controller } = rt;
-  const nick = () => manager.get(id)?.nick || '?';
-  const activateIfPlaying = () => {
-    const team = room.currentPlayer?.team?.id;
-    if (team > 0 && room.gameState) {
-      if (!controller.ai) controller.initialize();
-      controller.setActive(true);
-    } else controller.setActive(false);
-    renderRow(manager.get(id));
-  };
-  room.onGameStart = activateIfPlaying;
-  room.onGameTick = () => controller.update(); // timers são limitados em abas em segundo plano
-  room.onPlayerTeamChange = (playerId) => { if (playerId === room.currentPlayerId) activateIfPlaying(); };
-  room.onGameStop = () => controller.setActive(false);
-}
-
-function cleanup(id, rt) {
-  if (rt.timer) { clearTimeout(rt.timer); rt.timer = null; }
-  if (rt.pendingJoin) { try { rt.pendingJoin.cancel?.(); } catch (e) {} rt.pendingJoin = null; }
-  if (rt.interval) { clearInterval(rt.interval); rt.interval = null; }
-  if (rt.controller) { rt.controller.setActive(false); rt.controller = null; }
-  if (rt.room) { const r = rt.room; rt.room = null; try { r.leave?.(); } catch (e) {} }
-  if (runtime.get(id) === rt) runtime.delete(id);
 }
 
 function stopBot(id, silent = false) {
   const rt = runtime.get(id);
-  if (rt) { rt.stopped = true; cleanup(id, rt); }
+  if (rt) { rt.stopped = true; rt.cancel?.(); rt.destroy?.(); runtime.delete(id); }
   if (manager.get(id)) {
-    setStatus(id, STATUS.IDLE, { debug: '' });
+    setStatus(id, STATUS.IDLE, { debug: '', error: '' });
     if (!silent && rt) logEvent(`[${manager.get(id).nick}] parado`);
   }
 }
 
-function joinAll() {
+let joiningAll = false;
+async function joinAll() {
+  if (joiningAll) return;
   try { parseRoomLink($('room-link').value); } catch (e) { showError(e.message); return; }
-  const plan = manager.joinPlan(JOIN_STAGGER_MS);
-  if (plan.length > 1) logEvent(`Entrando com ${plan.length} bots (um a cada ${JOIN_STAGGER_MS / 1000}s)`);
-  for (const { id, delay } of plan) {
-    if (delay === 0) { joinBot(id); continue; }
-    const placeholder = { timer: null, stopped: false };
-    placeholder.timer = setTimeout(() => { if (runtime.get(id) === placeholder) runtime.delete(id); joinBot(id); }, delay);
-    runtime.set(id, placeholder);
-    setStatus(id, STATUS.JOINING, { error: '', debug: `na fila (${delay / 1000}s)` });
+  const ids = manager.joinPlan().map((p) => p.id);
+  if (!ids.length) return;
+  joiningAll = true;
+  for (const id of ids) setStatus(id, STATUS.JOINING, { error: '', debug: 'na fila' });
+  if (ids.length > 1) logEvent(`Entrando com ${ids.length} bots, um de cada vez`);
+  try {
+    // o próximo só começa depois que o anterior entrou ou falhou de vez
+    await runSequential(ids, (id) => (manager.get(id)?.status === STATUS.JOINING ? joinBot(id) : null),
+      { gapMs: JOIN_STAGGER_MS });
+  } finally {
+    joiningAll = false;
+    renderAll();
   }
 }
 
@@ -243,7 +246,7 @@ function stopAll() {
 }
 
 // atualiza time/estado periodicamente
-setInterval(() => { for (const [id, rt] of runtime) if (rt.room) renderRow(manager.get(id)); }, 1000);
+setInterval(() => { for (const [id, rt] of runtime) if (rt.handle) renderRow(manager.get(id)); }, 1000);
 
 $('add-bot-btn').addEventListener('click', addBot);
 $('join-all-btn').addEventListener('click', joinAll);
